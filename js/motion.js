@@ -6,20 +6,11 @@
 (function () {
   'use strict';
 
-  const DEG = Math.PI / 180;
-  const { JOINT_DEFS } = window.SoldierData;
-  const IDX = {};
-  for (const d of JOINT_DEFS) IDX[d.key] = d;
-
-  /** Raw node rotation for a pose key: degrees → signed radians. */
-  function raw(soldier, key) {
-    const def = IDX[key];
-    return (soldier.pose[key] || 0) * def.sign * DEG;
-  }
 
   /* ------------------------------------------------------------------ *
-   *  LifeLayer — breathing, blinks, micro-sway. Everything is written as
-   *  pose-value + small offset each frame, so it composes with any pose.
+   *  LifeLayer — breathing, blinks, micro-sway. Computes small offsets in
+   *  slider units and hands them to the active figure's applyLife(), so it
+   *  works on any figure (stylized pivots or the rigged human).
    * ------------------------------------------------------------------ */
   class LifeLayer {
     constructor(soldier) {
@@ -29,14 +20,17 @@
       this.t = Math.random() * 10;
       this._nextBlink = 1 + Math.random() * 3;
       this._blinkUntil = -1;
-      this._shoulderBaseY = soldier.nodes.shoulderL.position.y;
       this._dirty = false;
     }
 
     update(dt) {
       const s = this.soldier;
       if (!this.enabled) {
-        if (this._dirty) this._restore();
+        if (this._dirty) {
+          // keep the gait's torso values if a march is running
+          s.applyLife(this.gaitActive() ? { offsets: {} } : null);
+          this._dirty = false;
+        }
         return;
       }
       this._dirty = true;
@@ -49,45 +43,25 @@
       const w1 = Math.sin(t * 0.41) + Math.sin(t * 0.97 + 1.7);
       const w2 = Math.sin(t * 0.31 + 0.6) + Math.sin(t * 0.83);
 
-      const n = s.nodes;
+      const offsets = {
+        'head.turn': w1 * 0.65,
+        'head.nod': -(w2 * 0.4 + breath * 0.25), // sign -1 on the slider
+      };
       if (!this.gaitActive()) {
-        n.torso.rotation.x = raw(s, 'torso.bend') + breath * 0.55 * DEG;
-        n.torso.rotation.z = raw(s, 'torso.lean') + w2 * 0.22 * DEG;
+        offsets['torso.bend'] = breath * 0.55;
+        offsets['torso.lean'] = w2 * 0.22;
       }
-      n.head.rotation.y = raw(s, 'head.turn') + w1 * 0.65 * DEG;
-      n.head.rotation.x = raw(s, 'head.nod') + (w2 * 0.4 + breath * 0.25) * DEG;
 
-      // chest/shoulder rise
-      const rise = breath * 0.0035;
-      n.shoulderL.position.y = this._shoulderBaseY + rise;
-      n.shoulderR.position.y = this._shoulderBaseY + rise;
-      if (s.yokeMesh) s.yokeMesh.position.y = s.yokeMesh.userData.baseY == null
-        ? (s.yokeMesh.userData.baseY = s.yokeMesh.position.y)
-        : s.yokeMesh.userData.baseY + rise * 0.9;
-
-      // blinks
       if (this.t >= this._nextBlink) {
         this._blinkUntil = this.t + 0.14;
         this._nextBlink = this.t + 2 + Math.random() * 4;
       }
-      const blinking = this.t < this._blinkUntil;
-      for (const eye of s.eyeGroups || []) eye.scale.y = blinking ? 0.12 : 1;
-    }
 
-    _restore() {
-      const s = this.soldier;
-      const n = s.nodes;
-      if (!this.gaitActive()) {
-        n.torso.rotation.x = raw(s, 'torso.bend');
-        n.torso.rotation.z = raw(s, 'torso.lean');
-      }
-      n.head.rotation.y = raw(s, 'head.turn');
-      n.head.rotation.x = raw(s, 'head.nod');
-      n.shoulderL.position.y = this._shoulderBaseY;
-      n.shoulderR.position.y = this._shoulderBaseY;
-      if (s.yokeMesh && s.yokeMesh.userData.baseY != null) s.yokeMesh.position.y = s.yokeMesh.userData.baseY;
-      for (const eye of s.eyeGroups || []) eye.scale.y = 1;
-      this._dirty = false;
+      s.applyLife({
+        offsets,
+        rise: breath * 0.0035,
+        blink: this.t < this._blinkUntil,
+      });
     }
   }
 
@@ -117,6 +91,13 @@
     start(mode) {
       if (this.mode === mode) return;
       this.tempo = mode === 'double' ? 180 : 116;
+      // figures with motion-capture clips (the rigged human) march via clips
+      if (this.soldier.setClipMarch) {
+        this.mode = mode;
+        this.soldier.setClipMarch(mode, this.tempo);
+        if (this.onModeChange) this.onModeChange(this.mode, this.tempo);
+        return;
+      }
       if (this.mode) {
         // switching mid-march: crossfade from the current stride so the
         // amplitude change doesn't snap in a single frame
@@ -135,6 +116,15 @@
      *  except root.lift, which is grounded so the soldier doesn't hover. */
     stop() {
       if (!this.mode) return;
+      if (this.soldier.setClipMarch) {
+        this.soldier.setClipMarch(null);
+        this.mode = null;
+        this.weight = 0;
+        this._last = null;
+        this._blendFrom = null;
+        if (this.onModeChange) this.onModeChange(null, this.tempo);
+        return;
+      }
       if (this._last) {
         const baked = Object.assign({}, this._last);
         baked['root.lift'] = 0;
@@ -149,6 +139,10 @@
 
     update(dt) {
       if (!this.mode) return;
+      if (this.soldier.setClipMarch) {
+        this.soldier.setClipTempo(this.tempo); // live tempo slider
+        return;
+      }
       this.weight = Math.min(1, this.weight + dt / 0.35);
       this.phase += dt * Math.PI * (this.tempo / 60); // π per step
       const p = this.phase;

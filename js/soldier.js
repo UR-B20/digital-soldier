@@ -553,6 +553,32 @@
       return Object.assign({}, this.pose);
     }
 
+    /** Idle-life offsets from the LifeLayer: {offsets (slider units), rise
+     *  (metres), blink} or null to restore the plain pose. */
+    applyLife(life) {
+      const n = this.nodes;
+      if (this._shoulderBaseY == null) this._shoulderBaseY = n.shoulderL.position.y;
+      if (this.yokeMesh && this.yokeMesh.userData.baseY == null) {
+        this.yokeMesh.userData.baseY = this.yokeMesh.position.y;
+      }
+      const off = (life && life.offsets) || {};
+      const set = (key, offset) => {
+        const def = JOINT_INDEX[key];
+        const node = n[def.node];
+        node.rotation[def.axis] = ((this.pose[key] || 0) + (offset || 0)) * def.sign * DEG;
+      };
+      if (off['torso.bend'] !== undefined || !life) set('torso.bend', off['torso.bend']);
+      if (off['torso.lean'] !== undefined || !life) set('torso.lean', off['torso.lean']);
+      set('head.turn', off['head.turn']);
+      set('head.nod', off['head.nod']);
+      const rise = (life && life.rise) || 0;
+      n.shoulderL.position.y = this._shoulderBaseY + rise;
+      n.shoulderR.position.y = this._shoulderBaseY + rise;
+      if (this.yokeMesh) this.yokeMesh.position.y = this.yokeMesh.userData.baseY + rise * 0.9;
+      const blink = !!(life && life.blink);
+      for (const eye of this.eyeGroups || []) eye.scale.y = blink ? 0.12 : 1;
+    }
+
     /* Mirror helpers: copy one side onto the other / swap */
     mirrorPose(mode) {
       const p = this.getPose();

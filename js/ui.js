@@ -159,8 +159,46 @@
       const { details, body } = section('Appearance');
       const colorInputs = {};
 
+      // Figure choice: rigged human vs customizable stylized
+      body.appendChild(el('div', 'joint-group-title', 'Figure'));
+      const figRow = el('div', 'row gap');
+      const humanBtn = el('button', 'btn', 'Realistic (loading…)');
+      humanBtn.disabled = true;
+      const stylBtn = el('button', 'btn primary', 'Stylized');
+      humanBtn.addEventListener('click', () => app.setFigure('human'));
+      stylBtn.addEventListener('click', () => app.setFigure('stylized'));
+      figRow.appendChild(humanBtn); figRow.appendChild(stylBtn);
+      body.appendChild(figRow);
+      app.onHumanReady = (ok) => {
+        humanBtn.textContent = ok ? 'Realistic' : 'Realistic (unavailable)';
+        humanBtn.disabled = !ok;
+      };
+      app.onFigureChanged = (name) => {
+        humanBtn.classList.toggle('primary', name === 'human');
+        stylBtn.classList.toggle('primary', name !== 'human');
+        document.getElementById('panel').classList.toggle('human-mode', name === 'human');
+        syncAppearanceUI();
+      };
+
+      // Human-only: overall uniform tint (the scanned model has fixed textures)
+      const hOnly = el('div', 'human-only');
+      const tintRow = el('div', 'row');
+      tintRow.appendChild(el('label', null, 'Uniform tint'));
+      const tintInput = el('input');
+      tintInput.type = 'color'; tintInput.value = '#ffffff';
+      tintInput.addEventListener('input', () => soldier.setAppearance({ tint: tintInput.value }));
+      tintRow.appendChild(tintInput);
+      const tintReset = el('button', 'btn tiny', 'Reset');
+      tintReset.addEventListener('click', () => { tintInput.value = '#ffffff'; soldier.setAppearance({ tint: '#ffffff' }); });
+      tintRow.appendChild(tintReset);
+      hOnly.appendChild(tintRow);
+      hOnly.appendChild(el('div', 'hint', 'The realistic figure wears its own scanned uniform — tint it here. Full colour, camouflage and headgear options apply to the Stylized figure.'));
+      body.appendChild(hOnly);
+
+      const sOnly = el('div', 'stylized-only');
+
       // Uniform presets
-      body.appendChild(el('div', 'joint-group-title', 'Uniform'));
+      sOnly.appendChild(el('div', 'joint-group-title', 'Uniform'));
       const ugrid = el('div', 'btn-grid');
       for (const name of Object.keys(UNIFORM_PRESETS)) {
         const b = el('button', 'btn', name);
@@ -170,7 +208,7 @@
         });
         ugrid.appendChild(b);
       }
-      body.appendChild(ugrid);
+      sOnly.appendChild(ugrid);
 
       // Pattern select
       const patRow = el('div', 'row');
@@ -181,7 +219,7 @@
       }
       patSel.addEventListener('change', () => { soldier.setAppearance({ pattern: patSel.value }); });
       patRow.appendChild(patSel);
-      body.appendChild(patRow);
+      sOnly.appendChild(patRow);
 
       // Colour pickers
       const colorDefs = [
@@ -202,12 +240,12 @@
           syncAppearanceUI();
         });
         row.appendChild(input);
-        body.appendChild(row);
+        sOnly.appendChild(row);
         colorInputs[key] = input;
       }
 
       // Skin tone swatches
-      body.appendChild(el('div', 'joint-group-title', 'Skin tone'));
+      sOnly.appendChild(el('div', 'joint-group-title', 'Skin tone'));
       const swRow = el('div', 'row gap wrap');
       for (const tone of SKIN_TONES) {
         const sw = el('button', 'swatch');
@@ -216,7 +254,7 @@
         sw.addEventListener('click', () => { soldier.setAppearance({ skin: tone }); });
         swRow.appendChild(sw);
       }
-      body.appendChild(swRow);
+      sOnly.appendChild(swRow);
 
       // Headgear + gloves
       const hgRow = el('div', 'row');
@@ -225,7 +263,7 @@
       for (const h of HEADGEAR_TYPES) { const o = el('option', null, h); o.value = h; hgSel.appendChild(o); }
       hgSel.addEventListener('change', () => { soldier.setAppearance({ headgear: hgSel.value }); });
       hgRow.appendChild(hgSel);
-      body.appendChild(hgRow);
+      sOnly.appendChild(hgRow);
 
       const glRow = el('div', 'row');
       glRow.appendChild(el('label', null, 'Gloves'));
@@ -233,7 +271,8 @@
       for (const gname of ['skin', 'white', 'black']) { const o = el('option', null, gname === 'skin' ? 'none' : gname); o.value = gname; glSel.appendChild(o); }
       glSel.addEventListener('change', () => { soldier.setAppearance({ gloves: glSel.value }); });
       glRow.appendChild(glSel);
-      body.appendChild(glRow);
+      sOnly.appendChild(glRow);
+      body.appendChild(sOnly);
 
       // Height / build
       const scaleVals = {};
@@ -256,6 +295,7 @@
 
       function syncAppearanceUI() {
         const a = soldier.getAppearance();
+        if (a.tint && /^#[0-9a-f]{6}$/i.test(a.tint)) tintInput.value = a.tint;
         patSel.value = a.pattern;
         hgSel.value = a.headgear;
         glSel.value = a.gloves;

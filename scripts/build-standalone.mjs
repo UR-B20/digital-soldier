@@ -13,10 +13,13 @@ const read = (p) => readFileSync(join(root, p), 'utf8');
 const SCRIPTS = [
   'vendor/three.min.js',
   'vendor/OrbitControls.js',
+  'vendor/GLTFLoader.js',
+  'vendor/soldier-glb.js',
   'js/soldier.js',
   'js/poses.js',
   'js/animation.js',
   'js/motion.js',
+  'js/human.js',
   'js/capture.js',
   'js/ui.js',
   'js/main.js',

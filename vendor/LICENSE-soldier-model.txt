@@ -1,0 +1,7 @@
+Soldier.glb (embedded as base64 in soldier-glb.js)
+
+Rigged, animated human soldier model taken from the three.js examples
+(github.com/mrdoob/three.js, examples/models/gltf/Soldier.glb, MIT-licensed
+repository). The character is "Vanguard by T. Choonyung" from Adobe Mixamo
+(mixamo.com), which permits royalty-free use of characters and animations in
+projects. Includes Idle / Walk / Run / TPose motion-capture clips.

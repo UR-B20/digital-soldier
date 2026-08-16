@@ -111,14 +111,47 @@
     ground.add(contactBlob);
   }
 
-  /* ---------------- soldier ---------------- */
-  const soldier = new window.Soldier();
-  scene.add(soldier.root);
+  /* ---------------- figures ---------------- */
+  // Two interchangeable figures behind one forwarding proxy: everything
+  // downstream (UI, tweener, timeline, gait, life, capture) talks to
+  // `soldier` and always reaches the active figure.
+  const stylized = new window.Soldier();
+  scene.add(stylized.root);
+  const rig = { active: stylized };
+  const figures = { stylized };
+  const soldier = new Proxy({}, {
+    get(_, key) {
+      const v = rig.active[key];
+      return typeof v === 'function' ? v.bind(rig.active) : v;
+    },
+    set(_, key, value) { rig.active[key] = value; return true; },
+    has(_, key) { return key in rig.active; },
+  });
 
   /* ---------------- living motion ---------------- */
   const life = new window.SoldierMotion.LifeLayer(soldier);
   const gait = new window.SoldierMotion.GaitDriver(soldier);
   life.gaitActive = () => gait.active;
+
+  function setFigure(name) {
+    const next = figures[name];
+    if (!next || next === rig.active) return;
+    timeline.stop();
+    gait.stop();
+    tweener.cancel();
+    const prev = rig.active;
+    next.onPoseApplied = prev.onPoseApplied;
+    prev.onPoseApplied = null;
+    prev.root.visible = false;
+    next.root.visible = true;
+    rig.active = next;
+    // carry the pose and shared body scale across; figure-specific
+    // appearance (colours vs tint) stays with each figure
+    next.applyPose(prev.getPose());
+    next.setAppearance({ height: prev.appearance.height, build: prev.appearance.build });
+    app.figure = name;
+    if (app.onFigureChanged) app.onFigureChanged(name);
+  }
 
   /* ---------------- background modes ---------------- */
   const BG = {
@@ -161,12 +194,27 @@
   const app = {
     scene, camera, renderer, controls,
     soldier, tweener, timeline, capture, life, gait,
-    setBackground, setGround,
+    setBackground, setGround, setFigure,
+    figure: 'stylized',
+    humanReady: false,
     get backgroundMode() { return backgroundMode; },
   };
   window.app = app;
   window.SoldierUI.build(app);
   setBackground('sky');
+
+  // Load the rigged human figure and make it the default once ready.
+  window.loadHumanSoldier((human) => {
+    figures.human = human;
+    human.root.visible = false;
+    scene.add(human.root);
+    app.humanReady = true;
+    setFigure('human');
+    if (app.onHumanReady) app.onHumanReady(true);
+  }, (err) => {
+    console.warn('Realistic figure unavailable, using stylized:', err);
+    if (app.onHumanReady) app.onHumanReady(false);
+  });
 
   /* ---------------- resize ---------------- */
   function onResize() {
@@ -195,6 +243,7 @@
     timeline.update(dt);
     gait.update(dt);
     life.update(dt);
+    if (soldier.update) soldier.update(dt); // mocap mixer on the human figure
     contactBlob.position.x = soldier.root.position.x;
     contactBlob.position.z = soldier.root.position.z;
     controls.update();
