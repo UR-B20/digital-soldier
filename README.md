@@ -6,6 +6,16 @@ preset positions (attention, stand at ease, salute, marching…), customise his
 uniform and appearance, take PNG snapshots, and record videos of animated
 drill sequences.
 
+Two interchangeable figures share every control (Appearance → Figure):
+
+- **Realistic** (default): a rigged, motion-captured human soldier — the
+  "Vanguard" character with a full 49-bone Mixamo skeleton. Marches with real
+  mocap Walk/Run clips. His scanned uniform is fixed, but can be tinted.
+- **Stylized**: the fully customisable figure — any uniform colour,
+  camouflage patterns, headgear, skin tone, gloves.
+
+Poses, presets, keyframes and saved projects work identically on both.
+
 No installation, no internet connection and no build step required — Three.js
 is vendored in the repo.
 
@@ -44,6 +54,16 @@ and snapshot but video support varies.
 - **Copy R→L / L→R / Mirror** buttons duplicate or mirror one side's pose.
 - Body position sliders slide the soldier across the parade square, lift him
   (jumps, kneeling) and turn him to face any direction.
+
+### Living motion
+- **March on the spot**: ▶ Quick march / ▶ Double with a live tempo slider
+  (steps per minute). The realistic figure marches with genuine
+  motion-capture Walk/Run clips; the stylized figure uses a procedural gait
+  (opposite arm-leg swing, knee lift, body bounce). Record it directly with
+  ⏺ Record, or **■ Halt** to freeze and fine-tune with the sliders.
+- **Idle life** (Scene panel): breathing, blinking and subtle sway so the
+  soldier never looks frozen. It layers on top of any pose and records into
+  videos; untick to disable for perfectly still frames.
 
 ### Customise appearance
 - **Uniform presets**: olive drab, woodland/desert/digital/jungle camouflage,
@@ -89,10 +109,12 @@ drill positions and sequences.
 | `js/soldier.js` | articulated figure: joint registry, body build, appearance/camo system |
 | `js/poses.js` | preset drill positions (add your own here — they appear as buttons) |
 | `js/animation.js` | pose tweening + keyframe timeline |
+| `js/motion.js` | idle life layer (breathing/blinks) + procedural march gait |
+| `js/human.js` | rigged human figure: bone mapping, mocap march clips |
 | `js/capture.js` | PNG snapshots + MediaRecorder video |
 | `js/ui.js` | control panel construction and wiring |
 | `js/main.js` | scene, lights, ground, render loop |
-| `vendor/` | Three.js r147 + OrbitControls (MIT, licence included) |
+| `vendor/` | Three.js r147, OrbitControls, GLTFLoader + the rigged soldier model (licences included) |
 | `dist/digital-soldier-standalone.html` | the whole app in one file |
 | `scripts/build-standalone.mjs` | rebuilds the standalone file (`node scripts/build-standalone.mjs`) |
 
@@ -118,3 +140,5 @@ non-zero values from the saved JSON.
 - GIF export
 
 Licence: app code MIT; Three.js is MIT (see `vendor/LICENSE-threejs.txt`).
+The rigged human model is the "Vanguard" character from the three.js
+examples / Adobe Mixamo (see `vendor/LICENSE-soldier-model.txt`).

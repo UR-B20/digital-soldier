@@ -14,6 +14,8 @@
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08;
   viewport.appendChild(renderer.domElement);
 
   /* ---------------- scene ---------------- */
@@ -35,7 +37,7 @@
   // Lights
   const hemi = new THREE.HemisphereLight(0xdfeaf5, 0x8a8f7a, 0.75);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff3e0, 1.15);
+  const sun = new THREE.DirectionalLight(0xfff3e0, 1.35);
   sun.position.set(3.5, 6, 2.5);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -48,6 +50,10 @@
   const fill = new THREE.DirectionalLight(0xcfe0ff, 0.35);
   fill.position.set(-3, 2.5, -2.5);
   scene.add(fill);
+  // cool rim light from behind for silhouette separation
+  const rim = new THREE.DirectionalLight(0xbcd4ff, 0.5);
+  rim.position.set(-1.5, 3.2, -3.5);
+  scene.add(rim);
 
   // Ground: parade-square look — concrete disc with painted lines
   const ground = new THREE.Group();
@@ -83,9 +89,69 @@
   }
   scene.add(ground);
 
-  /* ---------------- soldier ---------------- */
-  const soldier = new window.Soldier();
-  scene.add(soldier.root);
+  // soft contact-shadow blob that follows the soldier
+  let contactBlob;
+  {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 128;
+    const ctx = cv.getContext('2d');
+    const g = ctx.createRadialGradient(64, 64, 8, 64, 64, 64);
+    g.addColorStop(0, 'rgba(0,0,0,0.42)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.18)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(cv);
+    contactBlob = new THREE.Mesh(
+      new THREE.CircleGeometry(0.55, 32),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+    );
+    contactBlob.rotation.x = -Math.PI / 2;
+    contactBlob.position.y = 0.004;
+    ground.add(contactBlob);
+  }
+
+  /* ---------------- figures ---------------- */
+  // Two interchangeable figures behind one forwarding proxy: everything
+  // downstream (UI, tweener, timeline, gait, life, capture) talks to
+  // `soldier` and always reaches the active figure.
+  const stylized = new window.Soldier();
+  scene.add(stylized.root);
+  const rig = { active: stylized };
+  const figures = { stylized };
+  const soldier = new Proxy({}, {
+    get(_, key) {
+      const v = rig.active[key];
+      return typeof v === 'function' ? v.bind(rig.active) : v;
+    },
+    set(_, key, value) { rig.active[key] = value; return true; },
+    has(_, key) { return key in rig.active; },
+  });
+
+  /* ---------------- living motion ---------------- */
+  const life = new window.SoldierMotion.LifeLayer(soldier);
+  const gait = new window.SoldierMotion.GaitDriver(soldier);
+  life.gaitActive = () => gait.active;
+
+  function setFigure(name) {
+    const next = figures[name];
+    if (!next || next === rig.active) return;
+    timeline.stop();
+    gait.stop();
+    tweener.cancel();
+    const prev = rig.active;
+    next.onPoseApplied = prev.onPoseApplied;
+    prev.onPoseApplied = null;
+    prev.root.visible = false;
+    next.root.visible = true;
+    rig.active = next;
+    // carry the pose and shared body scale across; figure-specific
+    // appearance (colours vs tint) stays with each figure
+    next.applyPose(prev.getPose());
+    next.setAppearance({ height: prev.appearance.height, build: prev.appearance.build });
+    app.figure = name;
+    if (app.onFigureChanged) app.onFigureChanged(name);
+  }
 
   /* ---------------- background modes ---------------- */
   const BG = {
@@ -127,13 +193,28 @@
   /* ---------------- app object & UI ---------------- */
   const app = {
     scene, camera, renderer, controls,
-    soldier, tweener, timeline, capture,
-    setBackground, setGround,
+    soldier, tweener, timeline, capture, life, gait,
+    setBackground, setGround, setFigure,
+    figure: 'stylized',
+    humanReady: false,
     get backgroundMode() { return backgroundMode; },
   };
   window.app = app;
   window.SoldierUI.build(app);
   setBackground('sky');
+
+  // Load the rigged human figure and make it the default once ready.
+  window.loadHumanSoldier((human) => {
+    figures.human = human;
+    human.root.visible = false;
+    scene.add(human.root);
+    app.humanReady = true;
+    setFigure('human');
+    if (app.onHumanReady) app.onHumanReady(true);
+  }, (err) => {
+    console.warn('Realistic figure unavailable, using stylized:', err);
+    if (app.onHumanReady) app.onHumanReady(false);
+  });
 
   /* ---------------- resize ---------------- */
   function onResize() {
@@ -160,6 +241,11 @@
     const dt = Math.min(clock.getDelta(), 0.1);
     tweener.update(dt);
     timeline.update(dt);
+    gait.update(dt);
+    life.update(dt);
+    if (soldier.update) soldier.update(dt); // mocap mixer on the human figure
+    contactBlob.position.x = soldier.root.position.x;
+    contactBlob.position.z = soldier.root.position.z;
     controls.update();
     renderFrame();
   }
