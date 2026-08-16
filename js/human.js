@@ -24,8 +24,8 @@
   // model faces -Z as authored; our convention is +Z
   const MODEL_YAW = Math.PI;
   const TARGET_HEIGHT = 1.80;
-  const ARM_DROP = 78 * DEG;      // T-pose → arms at the sides
-  const FINGER_CURL = 0.55;       // relaxed drill hand
+  const ARM_REST_ANGLE = 12 * DEG; // final hang: ~12° out from vertical
+  const FINGER_CURL = 0.55;        // relaxed drill hand
 
   // virtual pivot → Mixamo bone (canonical name, mixamorig prefix stripped —
   // GLTFLoader sanitizes node names, so 'mixamorig:LeftArm' may load as
@@ -109,7 +109,7 @@
           o.castShadow = true;
           o.frustumCulled = false;
           const mats = Array.isArray(o.material) ? o.material : [o.material];
-          for (const m of mats) if (m.name === 'VanguardBodyMat') this.bodyMaterials.push(m);
+          for (const m of mats) if (m && !this.bodyMaterials.includes(m)) this.bodyMaterials.push(m);
         }
       });
 
@@ -136,7 +136,9 @@
       this._solve();
     }
 
-    /* Neutral pose: bring the T-posed arms down, relax the fingers. */
+    /* Neutral pose: bring the bind-pose arms down to the sides, relax the
+     * fingers. The drop angle is measured from the model's actual bind pose
+     * (T-pose, A-pose, …) so any Mixamo-rigged character calibrates. */
     _applyNeutralPose() {
       const q = new THREE.Quaternion();
       const rotateBoneWorld = (boneName, worldQ) => {
@@ -149,8 +151,19 @@
         const pwInv = pw.clone().invert();
         bone.quaternion.premultiply(pw).premultiply(worldQ).premultiply(pwInv);
       };
-      rotateBoneWorld('LeftArm', q.clone().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -ARM_DROP));
-      rotateBoneWorld('RightArm', q.clone().setFromAxisAngle(new THREE.Vector3(0, 0, 1), ARM_DROP));
+      // measure how far each arm currently hangs from vertical
+      const armDrop = (side) => {
+        const a = this.bones[side + 'Arm'], f = this.bones[side + 'ForeArm'];
+        if (!a || !f) return 0;
+        this.model.updateWorldMatrix(true, true);
+        const pa = a.getWorldPosition(new THREE.Vector3());
+        const pf = f.getWorldPosition(new THREE.Vector3());
+        const dir = pf.sub(pa).normalize();
+        const fromVertical = Math.acos(THREE.MathUtils.clamp(-dir.y, -1, 1));
+        return Math.max(0, fromVertical - ARM_REST_ANGLE);
+      };
+      rotateBoneWorld('LeftArm', q.clone().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -armDrop('Left')));
+      rotateBoneWorld('RightArm', q.clone().setFromAxisAngle(new THREE.Vector3(0, 0, 1), armDrop('Right')));
 
       // relaxed finger curl (local-axis rotation per segment)
       for (const side of ['Left', 'Right']) {
