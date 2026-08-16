@@ -16,6 +16,7 @@ const SCRIPTS = [
   'js/soldier.js',
   'js/poses.js',
   'js/animation.js',
+  'js/motion.js',
   'js/capture.js',
   'js/ui.js',
   'js/main.js',

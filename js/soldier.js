@@ -63,6 +63,9 @@
   /* ------------------------------------------------------------------ *
    *  Skin tones & camo palettes
    * ------------------------------------------------------------------ */
+  const JOINT_INDEX = {};
+  for (const d of JOINT_DEFS) JOINT_INDEX[d.key] = d;
+
   const SKIN_TONES = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#5c3a21', '#ffdbac'];
 
   const CAMO_PALETTES = {
@@ -145,6 +148,29 @@
     return tex;
   }
 
+  /* Fine noise texture used as a fabric bump map. */
+  let fabricBump = null;
+  function makeFabricBump() {
+    if (fabricBump) return fabricBump;
+    const size = 128;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(size, size);
+    let seed = 424242;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = 118 + Math.floor(rnd() * 20);
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    fabricBump = new THREE.CanvasTexture(cv);
+    fabricBump.wrapS = fabricBump.wrapT = THREE.RepeatWrapping;
+    fabricBump.repeat.set(6, 6);
+    return fabricBump;
+  }
+
   /* ------------------------------------------------------------------ *
    *  Soldier class
    * ------------------------------------------------------------------ */
@@ -178,7 +204,14 @@
         belt:     std('#2e2a24', 0.5),
         metal:    std('#b8a44a', 0.35, 0.7),
         dark:     std('#1a1a1a', 0.6),
+        eyeWhite: std('#f2efe8', 0.35),
       };
+      // subtle woven-fabric bump on the uniform
+      const bump = makeFabricBump();
+      for (const key of ['jacket', 'trousers', 'hat']) {
+        this.mats[key].bumpMap = bump;
+        this.mats[key].bumpScale = 0.0018;
+      }
     }
 
     /* ---- geometry helpers ---- */
@@ -222,37 +255,52 @@
 
       const pelvis = this._pivot('pelvis', this.root, 0, HIP_Y, 0);
 
-      // Pelvis block (trousers)
-      const pelvisMesh = this._box(0.325, 0.20, 0.225, this.mats.trousers, true);
-      pelvisMesh.position.y = 0.075;
+      // Pelvis (trousers) — rounded
+      const pelvisMesh = new THREE.Mesh(new THREE.SphereGeometry(0.19, 24, 16), this.mats.trousers);
+      pelvisMesh.scale.set(0.92, 0.62, 0.64);
+      pelvisMesh.position.y = 0.07;
+      pelvisMesh.castShadow = true;
+      this.bulkMeshes.push(pelvisMesh);
       pelvis.add(pelvisMesh);
 
       // ---- Torso ----
       const torso = this._pivot('torso', pelvis, 0, WAIST_Y - HIP_Y, 0);
-      const jacket = this._box(0.36, TORSO_H, 0.24, this.mats.jacket, true);
+      // jacket: smooth elliptical trunk, broader at the chest than the waist
+      const jacket = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.148, TORSO_H, 26, 1), this.mats.jacket);
+      jacket.scale.set(1.12, 1, 0.7);
       jacket.position.y = TORSO_H / 2 - 0.03;
+      jacket.castShadow = true;
+      this.bulkMeshes.push(jacket);
       torso.add(jacket);
-      // slight shoulder taper block on top
-      const yoke = this._box(0.40, 0.09, 0.235, this.mats.jacket, true);
-      yoke.position.y = TORSO_H - 0.055;
+      // sloped shoulders
+      const yoke = new THREE.Mesh(new THREE.SphereGeometry(0.185, 24, 14), this.mats.jacket);
+      yoke.scale.set(1.16, 0.52, 0.62);
+      yoke.position.y = TORSO_H - 0.06;
+      yoke.castShadow = true;
+      this.bulkMeshes.push(yoke);
       torso.add(yoke);
+      this.jacketMesh = jacket;
+      this.yokeMesh = yoke;
       // belt + buckle
-      const belt = this._box(0.375, 0.055, 0.255, this.mats.belt);
+      const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.162, 0.162, 0.055, 26, 1, true), this.mats.belt);
+      belt.scale.set(1.17, 1, 0.79);
       belt.position.y = -0.005;
+      belt.castShadow = true;
       torso.add(belt);
-      const buckle = this._box(0.06, 0.04, 0.012, this.mats.metal);
-      buckle.position.set(0, -0.005, 0.13);
+      const buckle = this._box(0.055, 0.038, 0.012, this.mats.metal);
+      buckle.position.set(0, -0.005, 0.128);
       torso.add(buckle);
-      // chest pockets + buttons
+      // chest pockets + buttons follow the curved chest surface
       for (const sx of [-1, 1]) {
-        const pocket = this._box(0.085, 0.095, 0.015, this.mats.jacket);
-        pocket.position.set(sx * 0.093, 0.27, 0.124);
+        const pocket = this._box(0.08, 0.09, 0.014, this.mats.jacket);
+        pocket.position.set(sx * 0.08, 0.27, 0.1);
+        pocket.rotation.y = sx * 0.3;
         torso.add(pocket);
       }
       for (let i = 0; i < 4; i++) {
         const b = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.01, 10), this.mats.metal);
         b.rotation.x = Math.PI / 2;
-        b.position.set(0, 0.075 + i * 0.095, 0.125);
+        b.position.set(0, 0.075 + i * 0.095, 0.108 + i * 0.002);
         torso.add(b);
       }
 
@@ -268,6 +316,12 @@
       skull.position.y = 0.115;
       skull.castShadow = true;
       head.add(skull);
+      // jaw & chin — tucked mostly inside the skull, only the chin rounds out
+      const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.085, 18, 14), this.mats.skin);
+      jaw.scale.set(0.78, 0.58, 0.72);
+      jaw.position.set(0, 0.032, 0.012);
+      jaw.castShadow = true;
+      head.add(jaw);
       // ears
       for (const sx of [-1, 1]) {
         const ear = new THREE.Mesh(new THREE.SphereGeometry(0.024, 10, 8), this.mats.skin);
@@ -275,19 +329,35 @@
         ear.position.set(sx * 0.105, 0.11, -0.005);
         head.add(ear);
       }
-      // eyes
+      // eyes: white sclera + pupil, grouped so the life layer can blink them
+      this.eyeGroups = [];
       for (const sx of [-1, 1]) {
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.0135, 10, 8), this.mats.dark);
-        eye.position.set(sx * 0.042, 0.135, 0.098);
-        head.add(eye);
+        const eyeG = new THREE.Group();
+        eyeG.position.set(sx * 0.042, 0.135, 0.098);
+        const sclera = new THREE.Mesh(new THREE.SphereGeometry(0.017, 12, 10), this.mats.eyeWhite);
+        sclera.scale.set(1, 1, 0.55);
+        eyeG.add(sclera);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.008, 10, 8), this.mats.dark);
+        pupil.position.z = 0.008;
+        eyeG.add(pupil);
+        head.add(eyeG);
+        this.eyeGroups.push(eyeG);
+        // brow — hugs the skull curve, below the hat-band line
+        const brow = this._box(0.04, 0.009, 0.012, this.mats.hair);
+        brow.position.set(sx * 0.041, 0.15, 0.094);
+        brow.rotation.z = sx * -0.1;
+        brow.rotation.y = sx * 0.4;
+        head.add(brow);
       }
       // nose
-      const nose = this._box(0.028, 0.04, 0.028, this.mats.skin);
-      nose.position.set(0, 0.1, 0.108);
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.02, 12, 10), this.mats.skin);
+      nose.scale.set(0.7, 1.15, 0.85);
+      nose.position.set(0, 0.098, 0.106);
+      nose.castShadow = true;
       head.add(nose);
-      // simple mouth line
-      const mouth = this._box(0.05, 0.008, 0.01, this.mats.dark);
-      mouth.position.set(0, 0.055, 0.1);
+      // mouth line — embedded into the skull surface
+      const mouth = this._box(0.042, 0.007, 0.012, this.mats.dark);
+      mouth.position.set(0, 0.055, 0.094);
       head.add(mouth);
       // hair cap (visible when no headgear) — stays above the brow line
       const hair = new THREE.Mesh(new THREE.SphereGeometry(0.118, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.38), this.mats.hair);
@@ -314,11 +384,17 @@
         const elbow = this._pivot('elbow' + side, shoulder, 0, -UPPER_ARM, 0);
         elbow.add(this._capsule(0.05, FOREARM, this.mats.jacket));
         const wrist = this._pivot('wrist' + side, elbow, 0, -FOREARM, 0);
-        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 14, 12), this.mats.hands);
-        hand.scale.set(0.8, 1.25, 0.62);
-        hand.position.y = -0.055;
+        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.052, 16, 12), this.mats.hands);
+        hand.scale.set(0.74, 1.3, 0.52);
+        hand.position.y = -0.058;
         hand.castShadow = true;
         wrist.add(hand);
+        // thumb on the inner edge, angled slightly forward
+        const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.034, 4, 8), this.mats.hands);
+        thumb.position.set(-sx * 0.033, -0.042, 0.014);
+        thumb.rotation.set(-0.45, 0, sx * -0.45);
+        thumb.castShadow = true;
+        wrist.add(thumb);
       }
 
       // ---- Legs ----
@@ -339,6 +415,12 @@
         const sole = this._box(0.108, 0.024, 0.25, this.mats.dark);
         sole.position.set(0, -ANKLE_H + 0.012, 0.05);
         ankle.add(sole);
+        // rounded toe cap
+        const toe = new THREE.Mesh(new THREE.SphereGeometry(0.052, 12, 10), this.mats.boots);
+        toe.scale.set(0.95, 0.6, 0.7);
+        toe.position.set(0, -ANKLE_H + 0.038, 0.16);
+        toe.castShadow = true;
+        ankle.add(toe);
       }
     }
 
@@ -429,10 +511,19 @@
     }
 
     setJoint(key, value) {
-      const def = JOINT_DEFS.find((d) => d.key === key);
+      const def = JOINT_INDEX[key];
       if (!def) return;
       this.pose[key] = value;
       this._applyJoint(def, value);
+    }
+
+    /** Drive joints visually WITHOUT recording them in the pose state —
+     *  used by the procedural gait so sliders/keyframes stay clean. */
+    applyOverlay(values) {
+      for (const key of Object.keys(values)) {
+        const def = JOINT_INDEX[key];
+        if (def) this._applyJoint(def, values[key]);
+      }
     }
 
     _applyJoint(def, value) {

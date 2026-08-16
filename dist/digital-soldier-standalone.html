@@ -1459,6 +1459,9 @@ html, body {
   /* ------------------------------------------------------------------ *
    *  Skin tones & camo palettes
    * ------------------------------------------------------------------ */
+  const JOINT_INDEX = {};
+  for (const d of JOINT_DEFS) JOINT_INDEX[d.key] = d;
+
   const SKIN_TONES = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#5c3a21', '#ffdbac'];
 
   const CAMO_PALETTES = {
@@ -1541,6 +1544,29 @@ html, body {
     return tex;
   }
 
+  /* Fine noise texture used as a fabric bump map. */
+  let fabricBump = null;
+  function makeFabricBump() {
+    if (fabricBump) return fabricBump;
+    const size = 128;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(size, size);
+    let seed = 424242;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = 118 + Math.floor(rnd() * 20);
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    fabricBump = new THREE.CanvasTexture(cv);
+    fabricBump.wrapS = fabricBump.wrapT = THREE.RepeatWrapping;
+    fabricBump.repeat.set(6, 6);
+    return fabricBump;
+  }
+
   /* ------------------------------------------------------------------ *
    *  Soldier class
    * ------------------------------------------------------------------ */
@@ -1574,7 +1600,14 @@ html, body {
         belt:     std('#2e2a24', 0.5),
         metal:    std('#b8a44a', 0.35, 0.7),
         dark:     std('#1a1a1a', 0.6),
+        eyeWhite: std('#f2efe8', 0.35),
       };
+      // subtle woven-fabric bump on the uniform
+      const bump = makeFabricBump();
+      for (const key of ['jacket', 'trousers', 'hat']) {
+        this.mats[key].bumpMap = bump;
+        this.mats[key].bumpScale = 0.0018;
+      }
     }
 
     /* ---- geometry helpers ---- */
@@ -1618,37 +1651,52 @@ html, body {
 
       const pelvis = this._pivot('pelvis', this.root, 0, HIP_Y, 0);
 
-      // Pelvis block (trousers)
-      const pelvisMesh = this._box(0.325, 0.20, 0.225, this.mats.trousers, true);
-      pelvisMesh.position.y = 0.075;
+      // Pelvis (trousers) — rounded
+      const pelvisMesh = new THREE.Mesh(new THREE.SphereGeometry(0.19, 24, 16), this.mats.trousers);
+      pelvisMesh.scale.set(0.92, 0.62, 0.64);
+      pelvisMesh.position.y = 0.07;
+      pelvisMesh.castShadow = true;
+      this.bulkMeshes.push(pelvisMesh);
       pelvis.add(pelvisMesh);
 
       // ---- Torso ----
       const torso = this._pivot('torso', pelvis, 0, WAIST_Y - HIP_Y, 0);
-      const jacket = this._box(0.36, TORSO_H, 0.24, this.mats.jacket, true);
+      // jacket: smooth elliptical trunk, broader at the chest than the waist
+      const jacket = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.148, TORSO_H, 26, 1), this.mats.jacket);
+      jacket.scale.set(1.12, 1, 0.7);
       jacket.position.y = TORSO_H / 2 - 0.03;
+      jacket.castShadow = true;
+      this.bulkMeshes.push(jacket);
       torso.add(jacket);
-      // slight shoulder taper block on top
-      const yoke = this._box(0.40, 0.09, 0.235, this.mats.jacket, true);
-      yoke.position.y = TORSO_H - 0.055;
+      // sloped shoulders
+      const yoke = new THREE.Mesh(new THREE.SphereGeometry(0.185, 24, 14), this.mats.jacket);
+      yoke.scale.set(1.16, 0.52, 0.62);
+      yoke.position.y = TORSO_H - 0.06;
+      yoke.castShadow = true;
+      this.bulkMeshes.push(yoke);
       torso.add(yoke);
+      this.jacketMesh = jacket;
+      this.yokeMesh = yoke;
       // belt + buckle
-      const belt = this._box(0.375, 0.055, 0.255, this.mats.belt);
+      const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.162, 0.162, 0.055, 26, 1, true), this.mats.belt);
+      belt.scale.set(1.17, 1, 0.79);
       belt.position.y = -0.005;
+      belt.castShadow = true;
       torso.add(belt);
-      const buckle = this._box(0.06, 0.04, 0.012, this.mats.metal);
-      buckle.position.set(0, -0.005, 0.13);
+      const buckle = this._box(0.055, 0.038, 0.012, this.mats.metal);
+      buckle.position.set(0, -0.005, 0.128);
       torso.add(buckle);
-      // chest pockets + buttons
+      // chest pockets + buttons follow the curved chest surface
       for (const sx of [-1, 1]) {
-        const pocket = this._box(0.085, 0.095, 0.015, this.mats.jacket);
-        pocket.position.set(sx * 0.093, 0.27, 0.124);
+        const pocket = this._box(0.08, 0.09, 0.014, this.mats.jacket);
+        pocket.position.set(sx * 0.08, 0.27, 0.1);
+        pocket.rotation.y = sx * 0.3;
         torso.add(pocket);
       }
       for (let i = 0; i < 4; i++) {
         const b = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.01, 10), this.mats.metal);
         b.rotation.x = Math.PI / 2;
-        b.position.set(0, 0.075 + i * 0.095, 0.125);
+        b.position.set(0, 0.075 + i * 0.095, 0.108 + i * 0.002);
         torso.add(b);
       }
 
@@ -1664,6 +1712,12 @@ html, body {
       skull.position.y = 0.115;
       skull.castShadow = true;
       head.add(skull);
+      // jaw & chin — tucked mostly inside the skull, only the chin rounds out
+      const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.085, 18, 14), this.mats.skin);
+      jaw.scale.set(0.78, 0.58, 0.72);
+      jaw.position.set(0, 0.032, 0.012);
+      jaw.castShadow = true;
+      head.add(jaw);
       // ears
       for (const sx of [-1, 1]) {
         const ear = new THREE.Mesh(new THREE.SphereGeometry(0.024, 10, 8), this.mats.skin);
@@ -1671,19 +1725,35 @@ html, body {
         ear.position.set(sx * 0.105, 0.11, -0.005);
         head.add(ear);
       }
-      // eyes
+      // eyes: white sclera + pupil, grouped so the life layer can blink them
+      this.eyeGroups = [];
       for (const sx of [-1, 1]) {
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.0135, 10, 8), this.mats.dark);
-        eye.position.set(sx * 0.042, 0.135, 0.098);
-        head.add(eye);
+        const eyeG = new THREE.Group();
+        eyeG.position.set(sx * 0.042, 0.135, 0.098);
+        const sclera = new THREE.Mesh(new THREE.SphereGeometry(0.017, 12, 10), this.mats.eyeWhite);
+        sclera.scale.set(1, 1, 0.55);
+        eyeG.add(sclera);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.008, 10, 8), this.mats.dark);
+        pupil.position.z = 0.008;
+        eyeG.add(pupil);
+        head.add(eyeG);
+        this.eyeGroups.push(eyeG);
+        // brow — hugs the skull curve, below the hat-band line
+        const brow = this._box(0.04, 0.009, 0.012, this.mats.hair);
+        brow.position.set(sx * 0.041, 0.15, 0.094);
+        brow.rotation.z = sx * -0.1;
+        brow.rotation.y = sx * 0.4;
+        head.add(brow);
       }
       // nose
-      const nose = this._box(0.028, 0.04, 0.028, this.mats.skin);
-      nose.position.set(0, 0.1, 0.108);
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.02, 12, 10), this.mats.skin);
+      nose.scale.set(0.7, 1.15, 0.85);
+      nose.position.set(0, 0.098, 0.106);
+      nose.castShadow = true;
       head.add(nose);
-      // simple mouth line
-      const mouth = this._box(0.05, 0.008, 0.01, this.mats.dark);
-      mouth.position.set(0, 0.055, 0.1);
+      // mouth line — embedded into the skull surface
+      const mouth = this._box(0.042, 0.007, 0.012, this.mats.dark);
+      mouth.position.set(0, 0.055, 0.094);
       head.add(mouth);
       // hair cap (visible when no headgear) — stays above the brow line
       const hair = new THREE.Mesh(new THREE.SphereGeometry(0.118, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.38), this.mats.hair);
@@ -1710,11 +1780,17 @@ html, body {
         const elbow = this._pivot('elbow' + side, shoulder, 0, -UPPER_ARM, 0);
         elbow.add(this._capsule(0.05, FOREARM, this.mats.jacket));
         const wrist = this._pivot('wrist' + side, elbow, 0, -FOREARM, 0);
-        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 14, 12), this.mats.hands);
-        hand.scale.set(0.8, 1.25, 0.62);
-        hand.position.y = -0.055;
+        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.052, 16, 12), this.mats.hands);
+        hand.scale.set(0.74, 1.3, 0.52);
+        hand.position.y = -0.058;
         hand.castShadow = true;
         wrist.add(hand);
+        // thumb on the inner edge, angled slightly forward
+        const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.034, 4, 8), this.mats.hands);
+        thumb.position.set(-sx * 0.033, -0.042, 0.014);
+        thumb.rotation.set(-0.45, 0, sx * -0.45);
+        thumb.castShadow = true;
+        wrist.add(thumb);
       }
 
       // ---- Legs ----
@@ -1735,6 +1811,12 @@ html, body {
         const sole = this._box(0.108, 0.024, 0.25, this.mats.dark);
         sole.position.set(0, -ANKLE_H + 0.012, 0.05);
         ankle.add(sole);
+        // rounded toe cap
+        const toe = new THREE.Mesh(new THREE.SphereGeometry(0.052, 12, 10), this.mats.boots);
+        toe.scale.set(0.95, 0.6, 0.7);
+        toe.position.set(0, -ANKLE_H + 0.038, 0.16);
+        toe.castShadow = true;
+        ankle.add(toe);
       }
     }
 
@@ -1825,10 +1907,19 @@ html, body {
     }
 
     setJoint(key, value) {
-      const def = JOINT_DEFS.find((d) => d.key === key);
+      const def = JOINT_INDEX[key];
       if (!def) return;
       this.pose[key] = value;
       this._applyJoint(def, value);
+    }
+
+    /** Drive joints visually WITHOUT recording them in the pose state —
+     *  used by the procedural gait so sliders/keyframes stay clean. */
+    applyOverlay(values) {
+      for (const key of Object.keys(values)) {
+        const def = JOINT_INDEX[key];
+        if (def) this._applyJoint(def, values[key]);
+      }
     }
 
     _applyJoint(def, value) {
@@ -2234,6 +2325,215 @@ html, body {
 
 </script>
 <script>
+/* ==== js/motion.js ==== */
+/* Living motion: an additive idle "life" layer (breathing, blinking,
+ * micro-sway) and a procedural marching gait. Both drive the figure through
+ * visual overlays each frame — the saved pose state, sliders and keyframes
+ * are never polluted by them.
+ */
+(function () {
+  'use strict';
+
+  const DEG = Math.PI / 180;
+  const { JOINT_DEFS } = window.SoldierData;
+  const IDX = {};
+  for (const d of JOINT_DEFS) IDX[d.key] = d;
+
+  /** Raw node rotation for a pose key: degrees → signed radians. */
+  function raw(soldier, key) {
+    const def = IDX[key];
+    return (soldier.pose[key] || 0) * def.sign * DEG;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  LifeLayer — breathing, blinks, micro-sway. Everything is written as
+   *  pose-value + small offset each frame, so it composes with any pose.
+   * ------------------------------------------------------------------ */
+  class LifeLayer {
+    constructor(soldier) {
+      this.soldier = soldier;
+      this.enabled = true;
+      this.gaitActive = () => false; // torso is ceded to the gait when marching
+      this.t = Math.random() * 10;
+      this._nextBlink = 1 + Math.random() * 3;
+      this._blinkUntil = -1;
+      this._shoulderBaseY = soldier.nodes.shoulderL.position.y;
+      this._dirty = false;
+    }
+
+    update(dt) {
+      const s = this.soldier;
+      if (!this.enabled) {
+        if (this._dirty) this._restore();
+        return;
+      }
+      this._dirty = true;
+      this.t += dt;
+      const t = this.t;
+
+      // breathing ≈ 14 breaths/min
+      const breath = Math.sin(t * (2 * Math.PI / 4.3));
+      // slow wander built from incommensurate sines
+      const w1 = Math.sin(t * 0.41) + Math.sin(t * 0.97 + 1.7);
+      const w2 = Math.sin(t * 0.31 + 0.6) + Math.sin(t * 0.83);
+
+      const n = s.nodes;
+      if (!this.gaitActive()) {
+        n.torso.rotation.x = raw(s, 'torso.bend') + breath * 0.55 * DEG;
+        n.torso.rotation.z = raw(s, 'torso.lean') + w2 * 0.22 * DEG;
+      }
+      n.head.rotation.y = raw(s, 'head.turn') + w1 * 0.65 * DEG;
+      n.head.rotation.x = raw(s, 'head.nod') + (w2 * 0.4 + breath * 0.25) * DEG;
+
+      // chest/shoulder rise
+      const rise = breath * 0.0035;
+      n.shoulderL.position.y = this._shoulderBaseY + rise;
+      n.shoulderR.position.y = this._shoulderBaseY + rise;
+      if (s.yokeMesh) s.yokeMesh.position.y = s.yokeMesh.userData.baseY == null
+        ? (s.yokeMesh.userData.baseY = s.yokeMesh.position.y)
+        : s.yokeMesh.userData.baseY + rise * 0.9;
+
+      // blinks
+      if (this.t >= this._nextBlink) {
+        this._blinkUntil = this.t + 0.14;
+        this._nextBlink = this.t + 2 + Math.random() * 4;
+      }
+      const blinking = this.t < this._blinkUntil;
+      for (const eye of s.eyeGroups || []) eye.scale.y = blinking ? 0.12 : 1;
+    }
+
+    _restore() {
+      const s = this.soldier;
+      const n = s.nodes;
+      if (!this.gaitActive()) {
+        n.torso.rotation.x = raw(s, 'torso.bend');
+        n.torso.rotation.z = raw(s, 'torso.lean');
+      }
+      n.head.rotation.y = raw(s, 'head.turn');
+      n.head.rotation.x = raw(s, 'head.nod');
+      n.shoulderL.position.y = this._shoulderBaseY;
+      n.shoulderR.position.y = this._shoulderBaseY;
+      if (s.yokeMesh && s.yokeMesh.userData.baseY != null) s.yokeMesh.position.y = s.yokeMesh.userData.baseY;
+      for (const eye of s.eyeGroups || []) eye.scale.y = 1;
+      this._dirty = false;
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  GaitDriver — continuous quick/double march on the spot.
+   * ------------------------------------------------------------------ */
+  const GAIT_KEYS = [
+    'legL.swing', 'legR.swing', 'legL.knee', 'legR.knee', 'legL.ankle', 'legR.ankle',
+    'armL.swing', 'armR.swing', 'armL.elbow', 'armR.elbow',
+    'torso.bend', 'torso.twist', 'root.lift',
+  ];
+
+  class GaitDriver {
+    constructor(soldier) {
+      this.soldier = soldier;
+      this.mode = null;         // null | 'quick' | 'double'
+      this.tempo = 116;         // steps per minute
+      this.phase = 0;
+      this.weight = 0;          // blend-in from the standing pose
+      this.onModeChange = null;
+      this._last = null;
+      this._blendFrom = null;
+    }
+
+    get active() { return !!this.mode; }
+
+    start(mode) {
+      if (this.mode === mode) return;
+      this.tempo = mode === 'double' ? 180 : 116;
+      if (this.mode) {
+        // switching mid-march: crossfade from the current stride so the
+        // amplitude change doesn't snap in a single frame
+        this._blendFrom = Object.assign({}, this._last);
+        this.weight = 0;
+      } else {
+        this._blendFrom = null;
+        this.weight = 0;
+        this.phase = 0;
+      }
+      this.mode = mode;
+      if (this.onModeChange) this.onModeChange(this.mode, this.tempo);
+    }
+
+    /** Halt: bake the current stride into the pose so nothing snaps —
+     *  except root.lift, which is grounded so the soldier doesn't hover. */
+    stop() {
+      if (!this.mode) return;
+      if (this._last) {
+        const baked = Object.assign({}, this._last);
+        baked['root.lift'] = 0;
+        this.soldier.applyPose(baked, true);
+      }
+      this.mode = null;
+      this.weight = 0;
+      this._last = null;
+      this._blendFrom = null;
+      if (this.onModeChange) this.onModeChange(null, this.tempo);
+    }
+
+    update(dt) {
+      if (!this.mode) return;
+      this.weight = Math.min(1, this.weight + dt / 0.35);
+      this.phase += dt * Math.PI * (this.tempo / 60); // π per step
+      const p = this.phase;
+      const dbl = this.mode === 'double';
+
+      // drill-style: arms swing straight, breast-pocket high
+      const hipA = dbl ? 34 : 26;
+      const kneeA = dbl ? 78 : 42;
+      const armA = dbl ? 26 : 54;
+
+      const legL = Math.sin(p), legR = Math.sin(p + Math.PI);
+      const J = {};
+      J['legL.swing'] = hipA * legL + (dbl ? 6 : 0);
+      J['legR.swing'] = hipA * legR + (dbl ? 6 : 0);
+      // knee bends while its leg swings forward, straight when planted
+      J['legL.knee'] = kneeA * Math.max(0, Math.sin(p - 0.55));
+      J['legR.knee'] = kneeA * Math.max(0, Math.sin(p + Math.PI - 0.55));
+      // toe points down as the leg passes behind
+      J['legL.ankle'] = 13 * Math.max(0, -Math.sin(p - 0.3)) - 4 * Math.max(0, legL);
+      J['legR.ankle'] = 13 * Math.max(0, -Math.sin(p + Math.PI - 0.3)) - 4 * Math.max(0, legR);
+      // arms swing opposite their own leg
+      if (dbl) {
+        J['armL.swing'] = 18 + armA * legR;
+        J['armR.swing'] = 18 + armA * legL;
+        J['armL.elbow'] = 92;
+        J['armR.elbow'] = 92;
+      } else {
+        J['armL.swing'] = armA * legR;
+        J['armR.swing'] = armA * legL;
+        J['armL.elbow'] = 5;
+        J['armR.elbow'] = 5;
+      }
+      J['torso.bend'] = dbl ? 6 : 2;
+      J['torso.twist'] = (dbl ? 2.5 : 3.5) * legR;
+      // body rises as the legs pass each other (double bounce per cycle)
+      J['root.lift'] = (dbl ? 0.035 : 0.016) * (0.5 - 0.5 * Math.cos(2 * p));
+
+      // blend into the cycle — from the previous stride on a mode switch,
+      // from the underlying pose when starting fresh
+      const w = this.weight;
+      const pose = this.soldier.pose;
+      const from = this._blendFrom;
+      for (const key of GAIT_KEYS) {
+        const src = from && from[key] != null ? from[key] : (pose[key] || 0);
+        J[key] = src * (1 - w) + J[key] * w;
+      }
+      if (w >= 1) this._blendFrom = null;
+      this._last = J;
+      this.soldier.applyOverlay(J);
+    }
+  }
+
+  window.SoldierMotion = { LifeLayer, GaitDriver, GAIT_KEYS };
+})();
+
+</script>
+<script>
 /* ==== js/capture.js ==== */
 /* Snapshots (PNG, supersampled up to the GPU's limits, optional transparent
  * background) and video recording (MediaRecorder on the WebGL canvas).
@@ -2411,11 +2711,42 @@ html, body {
         const b = el('button', 'btn', name);
         b.addEventListener('click', () => {
           app.timeline.stop();
+          app.gait.stop();
           app.tweener.to(window.SoldierPoses[name], 0.45);
         });
         grid.appendChild(b);
       }
       body.appendChild(grid);
+
+      // live marching (procedural gait)
+      body.appendChild(el('div', 'joint-group-title', 'March on the spot'));
+      const marchRow = el('div', 'row gap');
+      const qmBtn = el('button', 'btn', '▶ Quick march');
+      const dmBtn = el('button', 'btn', '▶ Double');
+      const haltBtn = el('button', 'btn', '■ Halt');
+      qmBtn.addEventListener('click', () => { app.timeline.stop(); app.tweener.cancel(); app.gait.start('quick'); });
+      dmBtn.addEventListener('click', () => { app.timeline.stop(); app.tweener.cancel(); app.gait.start('double'); });
+      haltBtn.addEventListener('click', () => app.gait.stop());
+      marchRow.appendChild(qmBtn); marchRow.appendChild(dmBtn); marchRow.appendChild(haltBtn);
+      body.appendChild(marchRow);
+      const tempoRow = el('div', 'slider-row');
+      tempoRow.appendChild(el('label', null, 'Tempo (steps/min)'));
+      const tempoInput = el('input');
+      tempoInput.type = 'range'; tempoInput.min = 80; tempoInput.max = 220; tempoInput.step = 2; tempoInput.value = 116;
+      const tempoVal = el('span', 'slider-val', '116');
+      tempoInput.addEventListener('input', () => {
+        app.gait.tempo = parseInt(tempoInput.value, 10);
+        tempoVal.textContent = tempoInput.value;
+      });
+      tempoRow.appendChild(tempoInput); tempoRow.appendChild(tempoVal);
+      body.appendChild(tempoRow);
+      app.gait.onModeChange = (mode, tempo) => {
+        tempoInput.value = tempo;
+        tempoVal.textContent = String(tempo);
+        qmBtn.classList.toggle('primary', mode === 'quick');
+        dmBtn.classList.toggle('primary', mode === 'double');
+      };
+      body.appendChild(el('div', 'hint', 'Marching runs live — record it with ⏺ Record, or Halt and fine-tune with the sliders.'));
       panel.appendChild(details);
     }
 
@@ -2434,11 +2765,11 @@ html, body {
       const mirrorRow = el('div', 'row gap');
       for (const [label, mode] of [['Copy R→L', 'R2L'], ['Copy L→R', 'L2R'], ['Mirror', 'swap']]) {
         const b = el('button', 'btn small', label);
-        b.addEventListener('click', () => { app.timeline.stop(); app.tweener.cancel(); soldier.mirrorPose(mode); });
+        b.addEventListener('click', () => { app.timeline.stop(); app.gait.stop(); app.tweener.cancel(); soldier.mirrorPose(mode); });
         mirrorRow.appendChild(b);
       }
       const resetBtn = el('button', 'btn small warn', 'Reset pose');
-      resetBtn.addEventListener('click', () => { app.timeline.stop(); app.tweener.to({}, 0.35); });
+      resetBtn.addEventListener('click', () => { app.timeline.stop(); app.gait.stop(); app.tweener.to({}, 0.35); });
       mirrorRow.appendChild(resetBtn);
       body.appendChild(mirrorRow);
 
@@ -2457,12 +2788,16 @@ html, body {
           const val = el('span', 'slider-val', '0');
           input.addEventListener('input', () => {
             app.timeline.stop();
+            app.gait.stop();
             app.tweener.cancel();
             const v = parseFloat(input.value);
             soldier.setJoint(d.key, v);
             val.textContent = d.kind === 'pos' ? v.toFixed(2) : Math.round(v) + '°';
           });
           label.addEventListener('dblclick', () => {
+            app.timeline.stop();
+            app.gait.stop();
+            app.tweener.cancel();
             soldier.setJoint(d.key, 0);
             refreshSliders();
           });
@@ -2640,6 +2975,15 @@ html, body {
       spinRow.appendChild(spinChk);
       body.appendChild(spinRow);
 
+      const lifeRow = el('div', 'row');
+      const lifeLabel = el('label', null, 'Idle life');
+      lifeLabel.title = 'Breathing, blinking and subtle sway';
+      lifeRow.appendChild(lifeLabel);
+      const lifeChk = el('input'); lifeChk.type = 'checkbox'; lifeChk.checked = true;
+      lifeChk.addEventListener('change', () => { app.life.enabled = lifeChk.checked; });
+      lifeRow.appendChild(lifeChk);
+      body.appendChild(lifeRow);
+
       body.appendChild(el('div', 'joint-group-title', 'Camera view'));
       const camGrid = el('div', 'btn-grid');
       const views = {
@@ -2668,7 +3012,10 @@ html, body {
       body.appendChild(el('div', 'hint', 'Pose the soldier, then add keyframes. Play tweens through them in order — record it to make a video.'));
 
       const addBtn = el('button', 'btn primary', '+ Add current pose as keyframe');
-      addBtn.addEventListener('click', () => app.timeline.addKeyframe(soldier.getPose()));
+      addBtn.addEventListener('click', () => {
+        app.gait.stop(); // bakes the on-screen stride so marching poses capture correctly
+        app.timeline.addKeyframe(soldier.getPose());
+      });
       body.appendChild(addBtn);
 
       const list = el('div', 'kf-list');
@@ -2679,8 +3026,8 @@ html, body {
       const loopBtn = el('button', 'btn', '⟳ Loop');
       const stopBtn = el('button', 'btn', '■ Stop');
       const clearBtn = el('button', 'btn warn', 'Clear');
-      playBtn.addEventListener('click', () => { app.tweener.cancel(); app.timeline.play(false); });
-      loopBtn.addEventListener('click', () => { app.tweener.cancel(); app.timeline.play(true); });
+      playBtn.addEventListener('click', () => { app.tweener.cancel(); app.gait.stop(); app.timeline.play(false); });
+      loopBtn.addEventListener('click', () => { app.tweener.cancel(); app.gait.stop(); app.timeline.play(true); });
       stopBtn.addEventListener('click', () => app.timeline.stop());
       clearBtn.addEventListener('click', () => { if (confirm('Remove all keyframes?')) app.timeline.clear(); });
       playRow.appendChild(playBtn); playRow.appendChild(loopBtn); playRow.appendChild(stopBtn); playRow.appendChild(clearBtn);
@@ -2703,10 +3050,10 @@ html, body {
           const btns = el('div', 'kf-btns');
           const goBtn = el('button', 'btn tiny', 'Go');
           goBtn.title = 'Apply this keyframe pose';
-          goBtn.addEventListener('click', () => { app.timeline.stop(); app.tweener.to(kf.pose, 0.35); });
+          goBtn.addEventListener('click', () => { app.timeline.stop(); app.gait.stop(); app.tweener.to(kf.pose, 0.35); });
           const updBtn = el('button', 'btn tiny', 'Set');
           updBtn.title = 'Overwrite with current pose';
-          updBtn.addEventListener('click', () => { kf.pose = soldier.getPose(); });
+          updBtn.addEventListener('click', () => { app.gait.stop(); kf.pose = soldier.getPose(); });
           const upBtn = el('button', 'btn tiny', '↑');
           upBtn.addEventListener('click', () => app.timeline.moveKeyframe(i, -1));
           const dnBtn = el('button', 'btn tiny', '↓');
@@ -2794,6 +3141,7 @@ html, body {
         if (app.capture.recording) return;
         if (!app.timeline.keyframes.length) { alert('Add at least one keyframe first (Animation section).'); return; }
         app.tweener.cancel();
+        app.gait.stop();
         recordableBackground();
         if (app.capture.startRecording()) {
           seqRecording = true;
@@ -2850,6 +3198,9 @@ html, body {
         if (!f) return;
         const reader = new FileReader();
         reader.onload = () => {
+          app.timeline.stop();
+          app.gait.stop();
+          app.tweener.cancel();
           try {
             const data = JSON.parse(reader.result);
             if (data.appearance) { soldier.setAppearance(data.appearance); if (app.syncAppearanceUI) app.syncAppearanceUI(); }
@@ -2917,6 +3268,8 @@ html, body {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08;
   viewport.appendChild(renderer.domElement);
 
   /* ---------------- scene ---------------- */
@@ -2938,7 +3291,7 @@ html, body {
   // Lights
   const hemi = new THREE.HemisphereLight(0xdfeaf5, 0x8a8f7a, 0.75);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff3e0, 1.15);
+  const sun = new THREE.DirectionalLight(0xfff3e0, 1.35);
   sun.position.set(3.5, 6, 2.5);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -2951,6 +3304,10 @@ html, body {
   const fill = new THREE.DirectionalLight(0xcfe0ff, 0.35);
   fill.position.set(-3, 2.5, -2.5);
   scene.add(fill);
+  // cool rim light from behind for silhouette separation
+  const rim = new THREE.DirectionalLight(0xbcd4ff, 0.5);
+  rim.position.set(-1.5, 3.2, -3.5);
+  scene.add(rim);
 
   // Ground: parade-square look — concrete disc with painted lines
   const ground = new THREE.Group();
@@ -2986,9 +3343,36 @@ html, body {
   }
   scene.add(ground);
 
+  // soft contact-shadow blob that follows the soldier
+  let contactBlob;
+  {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 128;
+    const ctx = cv.getContext('2d');
+    const g = ctx.createRadialGradient(64, 64, 8, 64, 64, 64);
+    g.addColorStop(0, 'rgba(0,0,0,0.42)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.18)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(cv);
+    contactBlob = new THREE.Mesh(
+      new THREE.CircleGeometry(0.55, 32),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+    );
+    contactBlob.rotation.x = -Math.PI / 2;
+    contactBlob.position.y = 0.004;
+    ground.add(contactBlob);
+  }
+
   /* ---------------- soldier ---------------- */
   const soldier = new window.Soldier();
   scene.add(soldier.root);
+
+  /* ---------------- living motion ---------------- */
+  const life = new window.SoldierMotion.LifeLayer(soldier);
+  const gait = new window.SoldierMotion.GaitDriver(soldier);
+  life.gaitActive = () => gait.active;
 
   /* ---------------- background modes ---------------- */
   const BG = {
@@ -3030,7 +3414,7 @@ html, body {
   /* ---------------- app object & UI ---------------- */
   const app = {
     scene, camera, renderer, controls,
-    soldier, tweener, timeline, capture,
+    soldier, tweener, timeline, capture, life, gait,
     setBackground, setGround,
     get backgroundMode() { return backgroundMode; },
   };
@@ -3063,6 +3447,10 @@ html, body {
     const dt = Math.min(clock.getDelta(), 0.1);
     tweener.update(dt);
     timeline.update(dt);
+    gait.update(dt);
+    life.update(dt);
+    contactBlob.position.x = soldier.root.position.x;
+    contactBlob.position.z = soldier.root.position.z;
     controls.update();
     renderFrame();
   }

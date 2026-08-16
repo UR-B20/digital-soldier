@@ -14,6 +14,8 @@
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08;
   viewport.appendChild(renderer.domElement);
 
   /* ---------------- scene ---------------- */
@@ -35,7 +37,7 @@
   // Lights
   const hemi = new THREE.HemisphereLight(0xdfeaf5, 0x8a8f7a, 0.75);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff3e0, 1.15);
+  const sun = new THREE.DirectionalLight(0xfff3e0, 1.35);
   sun.position.set(3.5, 6, 2.5);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -48,6 +50,10 @@
   const fill = new THREE.DirectionalLight(0xcfe0ff, 0.35);
   fill.position.set(-3, 2.5, -2.5);
   scene.add(fill);
+  // cool rim light from behind for silhouette separation
+  const rim = new THREE.DirectionalLight(0xbcd4ff, 0.5);
+  rim.position.set(-1.5, 3.2, -3.5);
+  scene.add(rim);
 
   // Ground: parade-square look — concrete disc with painted lines
   const ground = new THREE.Group();
@@ -83,9 +89,36 @@
   }
   scene.add(ground);
 
+  // soft contact-shadow blob that follows the soldier
+  let contactBlob;
+  {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 128;
+    const ctx = cv.getContext('2d');
+    const g = ctx.createRadialGradient(64, 64, 8, 64, 64, 64);
+    g.addColorStop(0, 'rgba(0,0,0,0.42)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.18)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(cv);
+    contactBlob = new THREE.Mesh(
+      new THREE.CircleGeometry(0.55, 32),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+    );
+    contactBlob.rotation.x = -Math.PI / 2;
+    contactBlob.position.y = 0.004;
+    ground.add(contactBlob);
+  }
+
   /* ---------------- soldier ---------------- */
   const soldier = new window.Soldier();
   scene.add(soldier.root);
+
+  /* ---------------- living motion ---------------- */
+  const life = new window.SoldierMotion.LifeLayer(soldier);
+  const gait = new window.SoldierMotion.GaitDriver(soldier);
+  life.gaitActive = () => gait.active;
 
   /* ---------------- background modes ---------------- */
   const BG = {
@@ -127,7 +160,7 @@
   /* ---------------- app object & UI ---------------- */
   const app = {
     scene, camera, renderer, controls,
-    soldier, tweener, timeline, capture,
+    soldier, tweener, timeline, capture, life, gait,
     setBackground, setGround,
     get backgroundMode() { return backgroundMode; },
   };
@@ -160,6 +193,10 @@
     const dt = Math.min(clock.getDelta(), 0.1);
     tweener.update(dt);
     timeline.update(dt);
+    gait.update(dt);
+    life.update(dt);
+    contactBlob.position.x = soldier.root.position.x;
+    contactBlob.position.z = soldier.root.position.z;
     controls.update();
     renderFrame();
   }

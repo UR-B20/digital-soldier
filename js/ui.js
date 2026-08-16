@@ -38,11 +38,42 @@
         const b = el('button', 'btn', name);
         b.addEventListener('click', () => {
           app.timeline.stop();
+          app.gait.stop();
           app.tweener.to(window.SoldierPoses[name], 0.45);
         });
         grid.appendChild(b);
       }
       body.appendChild(grid);
+
+      // live marching (procedural gait)
+      body.appendChild(el('div', 'joint-group-title', 'March on the spot'));
+      const marchRow = el('div', 'row gap');
+      const qmBtn = el('button', 'btn', '▶ Quick march');
+      const dmBtn = el('button', 'btn', '▶ Double');
+      const haltBtn = el('button', 'btn', '■ Halt');
+      qmBtn.addEventListener('click', () => { app.timeline.stop(); app.tweener.cancel(); app.gait.start('quick'); });
+      dmBtn.addEventListener('click', () => { app.timeline.stop(); app.tweener.cancel(); app.gait.start('double'); });
+      haltBtn.addEventListener('click', () => app.gait.stop());
+      marchRow.appendChild(qmBtn); marchRow.appendChild(dmBtn); marchRow.appendChild(haltBtn);
+      body.appendChild(marchRow);
+      const tempoRow = el('div', 'slider-row');
+      tempoRow.appendChild(el('label', null, 'Tempo (steps/min)'));
+      const tempoInput = el('input');
+      tempoInput.type = 'range'; tempoInput.min = 80; tempoInput.max = 220; tempoInput.step = 2; tempoInput.value = 116;
+      const tempoVal = el('span', 'slider-val', '116');
+      tempoInput.addEventListener('input', () => {
+        app.gait.tempo = parseInt(tempoInput.value, 10);
+        tempoVal.textContent = tempoInput.value;
+      });
+      tempoRow.appendChild(tempoInput); tempoRow.appendChild(tempoVal);
+      body.appendChild(tempoRow);
+      app.gait.onModeChange = (mode, tempo) => {
+        tempoInput.value = tempo;
+        tempoVal.textContent = String(tempo);
+        qmBtn.classList.toggle('primary', mode === 'quick');
+        dmBtn.classList.toggle('primary', mode === 'double');
+      };
+      body.appendChild(el('div', 'hint', 'Marching runs live — record it with ⏺ Record, or Halt and fine-tune with the sliders.'));
       panel.appendChild(details);
     }
 
@@ -61,11 +92,11 @@
       const mirrorRow = el('div', 'row gap');
       for (const [label, mode] of [['Copy R→L', 'R2L'], ['Copy L→R', 'L2R'], ['Mirror', 'swap']]) {
         const b = el('button', 'btn small', label);
-        b.addEventListener('click', () => { app.timeline.stop(); app.tweener.cancel(); soldier.mirrorPose(mode); });
+        b.addEventListener('click', () => { app.timeline.stop(); app.gait.stop(); app.tweener.cancel(); soldier.mirrorPose(mode); });
         mirrorRow.appendChild(b);
       }
       const resetBtn = el('button', 'btn small warn', 'Reset pose');
-      resetBtn.addEventListener('click', () => { app.timeline.stop(); app.tweener.to({}, 0.35); });
+      resetBtn.addEventListener('click', () => { app.timeline.stop(); app.gait.stop(); app.tweener.to({}, 0.35); });
       mirrorRow.appendChild(resetBtn);
       body.appendChild(mirrorRow);
 
@@ -84,12 +115,16 @@
           const val = el('span', 'slider-val', '0');
           input.addEventListener('input', () => {
             app.timeline.stop();
+            app.gait.stop();
             app.tweener.cancel();
             const v = parseFloat(input.value);
             soldier.setJoint(d.key, v);
             val.textContent = d.kind === 'pos' ? v.toFixed(2) : Math.round(v) + '°';
           });
           label.addEventListener('dblclick', () => {
+            app.timeline.stop();
+            app.gait.stop();
+            app.tweener.cancel();
             soldier.setJoint(d.key, 0);
             refreshSliders();
           });
@@ -267,6 +302,15 @@
       spinRow.appendChild(spinChk);
       body.appendChild(spinRow);
 
+      const lifeRow = el('div', 'row');
+      const lifeLabel = el('label', null, 'Idle life');
+      lifeLabel.title = 'Breathing, blinking and subtle sway';
+      lifeRow.appendChild(lifeLabel);
+      const lifeChk = el('input'); lifeChk.type = 'checkbox'; lifeChk.checked = true;
+      lifeChk.addEventListener('change', () => { app.life.enabled = lifeChk.checked; });
+      lifeRow.appendChild(lifeChk);
+      body.appendChild(lifeRow);
+
       body.appendChild(el('div', 'joint-group-title', 'Camera view'));
       const camGrid = el('div', 'btn-grid');
       const views = {
@@ -295,7 +339,10 @@
       body.appendChild(el('div', 'hint', 'Pose the soldier, then add keyframes. Play tweens through them in order — record it to make a video.'));
 
       const addBtn = el('button', 'btn primary', '+ Add current pose as keyframe');
-      addBtn.addEventListener('click', () => app.timeline.addKeyframe(soldier.getPose()));
+      addBtn.addEventListener('click', () => {
+        app.gait.stop(); // bakes the on-screen stride so marching poses capture correctly
+        app.timeline.addKeyframe(soldier.getPose());
+      });
       body.appendChild(addBtn);
 
       const list = el('div', 'kf-list');
@@ -306,8 +353,8 @@
       const loopBtn = el('button', 'btn', '⟳ Loop');
       const stopBtn = el('button', 'btn', '■ Stop');
       const clearBtn = el('button', 'btn warn', 'Clear');
-      playBtn.addEventListener('click', () => { app.tweener.cancel(); app.timeline.play(false); });
-      loopBtn.addEventListener('click', () => { app.tweener.cancel(); app.timeline.play(true); });
+      playBtn.addEventListener('click', () => { app.tweener.cancel(); app.gait.stop(); app.timeline.play(false); });
+      loopBtn.addEventListener('click', () => { app.tweener.cancel(); app.gait.stop(); app.timeline.play(true); });
       stopBtn.addEventListener('click', () => app.timeline.stop());
       clearBtn.addEventListener('click', () => { if (confirm('Remove all keyframes?')) app.timeline.clear(); });
       playRow.appendChild(playBtn); playRow.appendChild(loopBtn); playRow.appendChild(stopBtn); playRow.appendChild(clearBtn);
@@ -330,10 +377,10 @@
           const btns = el('div', 'kf-btns');
           const goBtn = el('button', 'btn tiny', 'Go');
           goBtn.title = 'Apply this keyframe pose';
-          goBtn.addEventListener('click', () => { app.timeline.stop(); app.tweener.to(kf.pose, 0.35); });
+          goBtn.addEventListener('click', () => { app.timeline.stop(); app.gait.stop(); app.tweener.to(kf.pose, 0.35); });
           const updBtn = el('button', 'btn tiny', 'Set');
           updBtn.title = 'Overwrite with current pose';
-          updBtn.addEventListener('click', () => { kf.pose = soldier.getPose(); });
+          updBtn.addEventListener('click', () => { app.gait.stop(); kf.pose = soldier.getPose(); });
           const upBtn = el('button', 'btn tiny', '↑');
           upBtn.addEventListener('click', () => app.timeline.moveKeyframe(i, -1));
           const dnBtn = el('button', 'btn tiny', '↓');
@@ -421,6 +468,7 @@
         if (app.capture.recording) return;
         if (!app.timeline.keyframes.length) { alert('Add at least one keyframe first (Animation section).'); return; }
         app.tweener.cancel();
+        app.gait.stop();
         recordableBackground();
         if (app.capture.startRecording()) {
           seqRecording = true;
@@ -477,6 +525,9 @@
         if (!f) return;
         const reader = new FileReader();
         reader.onload = () => {
+          app.timeline.stop();
+          app.gait.stop();
+          app.tweener.cancel();
           try {
             const data = JSON.parse(reader.result);
             if (data.appearance) { soldier.setAppearance(data.appearance); if (app.syncAppearanceUI) app.syncAppearanceUI(); }

@@ -45,6 +45,15 @@ and snapshot but video support varies.
 - Body position sliders slide the soldier across the parade square, lift him
   (jumps, kneeling) and turn him to face any direction.
 
+### Living motion
+- **March on the spot**: ▶ Quick march / ▶ Double run a continuous procedural
+  gait — opposite arm-leg swing, knee lift, body bounce — with a live tempo
+  slider (steps per minute). Record it directly with ⏺ Record, or **■ Halt**
+  to freeze mid-stride and fine-tune with the sliders.
+- **Idle life** (Scene panel): breathing, blinking and subtle sway so the
+  soldier never looks frozen. It layers on top of any pose and records into
+  videos; untick to disable for perfectly still frames.
+
 ### Customise appearance
 - **Uniform presets**: olive drab, woodland/desert/digital/jungle camouflage,
   ceremonial white, ceremonial red, navy blues.
@@ -89,6 +98,7 @@ drill positions and sequences.
 | `js/soldier.js` | articulated figure: joint registry, body build, appearance/camo system |
 | `js/poses.js` | preset drill positions (add your own here — they appear as buttons) |
 | `js/animation.js` | pose tweening + keyframe timeline |
+| `js/motion.js` | idle life layer (breathing/blinks) + procedural march gait |
 | `js/capture.js` | PNG snapshots + MediaRecorder video |
 | `js/ui.js` | control panel construction and wiring |
 | `js/main.js` | scene, lights, ground, render loop |
