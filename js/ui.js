@@ -201,6 +201,7 @@
       body.appendChild(glRow);
 
       // Height / build
+      const scaleVals = {};
       for (const [key, label, min, max] of [['height', 'Height', 0.9, 1.1], ['build', 'Build', 0.85, 1.15]]) {
         const row = el('div', 'slider-row');
         row.appendChild(el('label', null, label));
@@ -215,6 +216,7 @@
         row.appendChild(input); row.appendChild(val);
         body.appendChild(row);
         colorInputs[key] = input;
+        scaleVals[key] = val;
       }
 
       function syncAppearanceUI() {
@@ -224,6 +226,11 @@
         glSel.value = a.gloves;
         for (const [key] of colorDefs) {
           if (/^#[0-9a-f]{6}$/i.test(a[key])) colorInputs[key].value = a[key];
+        }
+        for (const key of ['height', 'build']) {
+          const v = Number(a[key]) || 1;
+          colorInputs[key].value = v;
+          scaleVals[key].textContent = v.toFixed(2);
         }
       }
       syncAppearanceUI();
@@ -243,6 +250,7 @@
       bgSel.addEventListener('change', () => app.setBackground(bgSel.value));
       bgRow.appendChild(bgSel);
       body.appendChild(bgRow);
+      app.bgSelect = bgSel;
 
       const groundRow = el('div', 'row');
       groundRow.appendChild(el('label', null, 'Ground'));
@@ -345,7 +353,12 @@
             inp.value = kf[prop];
             inp.addEventListener('change', () => {
               const v = parseFloat(inp.value);
-              if (!isNaN(v)) app.timeline.updateKeyframe(i, { [prop]: Math.max(prop === 'hold' ? 0 : 0.1, v) });
+              if (isNaN(v)) return;
+              // Mutate in place: a full list rebuild here would destroy the
+              // element under the cursor and swallow the user's next click.
+              kf[prop] = Math.max(prop === 'hold' ? 0 : 0.1, v);
+              inp.value = kf[prop];
+              durEl.textContent = 'Sequence length: ' + app.timeline.duration().toFixed(1) + 's';
             });
             wrap.appendChild(inp);
             timing.appendChild(wrap);
@@ -383,31 +396,56 @@
       const recSeqBtn = el('button', 'btn record', '⏺ Record sequence');
       recRow.appendChild(recBtn); recRow.appendChild(recSeqBtn);
       body.appendChild(recRow);
-      body.appendChild(el('div', 'hint', 'Record = capture the viewport live (move sliders, play, orbit — all captured). Record sequence = plays your keyframes once and saves the video automatically. Saves .webm (import into any editor, or convert to .mp4).'));
+      body.appendChild(el('div', 'hint', 'Record = capture the viewport live (move sliders, play, orbit — all captured). Record sequence = plays your keyframes once and saves the video automatically. Saves .webm (import into any editor, or convert to .mp4). Keep the tab visible while recording — switching away stops and saves the take.'));
 
       let seqRecording = false;
+      let restoreBg = null;
+
+      // A transparent background encodes as solid black in video — switch to
+      // green screen for the take and restore afterwards.
+      const recordableBackground = () => {
+        if (app.backgroundMode === 'transparent') {
+          alert('A transparent background records as black — switching to Green screen for this video.');
+          restoreBg = 'transparent';
+          app.setBackground('green');
+          if (app.bgSelect) app.bgSelect.value = 'green';
+        }
+      };
+      app.recordableBackground = recordableBackground;
+
       recBtn.addEventListener('click', () => {
         if (app.capture.recording) { app.capture.stopRecording(); }
-        else { seqRecording = false; app.capture.startRecording(); }
+        else { recordableBackground(); app.capture.startRecording(); }
       });
       recSeqBtn.addEventListener('click', () => {
         if (app.capture.recording) return;
         if (!app.timeline.keyframes.length) { alert('Add at least one keyframe first (Animation section).'); return; }
         app.tweener.cancel();
+        recordableBackground();
         if (app.capture.startRecording()) {
           seqRecording = true;
           app.timeline.play(false);
         }
       });
-      app.timeline.onFinished = () => {
-        if (seqRecording && app.capture.recording) {
+      // Auto-stop the sequence recording when playback ends — whether it
+      // finished naturally or was aborted by Stop, a preset or a slider.
+      app.timeline.onPlayState = (playing) => {
+        if (!playing && seqRecording) {
           seqRecording = false;
-          // small tail so the last pose is visible in the video
+          // small tail so the final pose is visible in the video
           setTimeout(() => app.capture.stopRecording(), 400);
         }
       };
 
       const recState = (rec) => {
+        if (!rec) {
+          seqRecording = false;
+          if (restoreBg) {
+            app.setBackground(restoreBg);
+            if (app.bgSelect) app.bgSelect.value = restoreBg;
+            restoreBg = null;
+          }
+        }
         recBtn.textContent = rec ? '■ Stop & save' : '⏺ Record';
         recBtn.classList.toggle('recording', rec);
         recSeqBtn.disabled = rec;
@@ -464,7 +502,7 @@
       const recQuick = document.getElementById('tb-record');
       recQuick.addEventListener('click', () => {
         if (app.capture.recording) app.capture.stopRecording();
-        else app.capture.startRecording();
+        else { app.recordableBackground(); app.capture.startRecording(); }
       });
       const prevState = app.capture.onRecordState;
       app.capture.onRecordState = (rec) => {

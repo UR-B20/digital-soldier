@@ -39,9 +39,10 @@
   sun.position.set(3.5, 6, 2.5);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -4; sun.shadow.camera.right = 4;
-  sun.shadow.camera.top = 5; sun.shadow.camera.bottom = -1;
-  sun.shadow.camera.near = 1; sun.shadow.camera.far = 15;
+  // Frustum covers the full ±3 m body-slide range plus body height.
+  sun.shadow.camera.left = -7; sun.shadow.camera.right = 7;
+  sun.shadow.camera.top = 7; sun.shadow.camera.bottom = -7;
+  sun.shadow.camera.near = 1; sun.shadow.camera.far = 20;
   sun.shadow.bias = -0.0005;
   scene.add(sun);
   const fill = new THREE.DirectionalLight(0xcfe0ff, 0.35);
@@ -145,6 +146,12 @@
   }
   window.addEventListener('resize', onResize);
   onResize();
+
+  // A hidden tab suspends rendering, so a running recording would fill with
+  // frozen frames — stop and save it instead.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && capture.recording) capture.stopRecording();
+  });
 
   /* ---------------- render loop ---------------- */
   const clock = new THREE.Clock();
