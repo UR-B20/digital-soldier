@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Digital Soldier — drill pose studio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🪖</text></svg>" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="layout">
+    <div id="viewport">
+      <div id="toolbar">
+        <span id="app-title">🪖 Digital Soldier</span>
+        <button id="tb-snapshot" class="tb-btn" title="Snapshot PNG (2×)">📷</button>
+        <button id="tb-record" class="tb-btn" title="Record video">⏺</button>
+        <span id="rec-dot"><i></i><span>0s</span></span>
+      </div>
+    </div>
+    <div id="panel"></div>
+  </div>
+
+  <script defer src="vendor/three.min.js"></script>
+  <script defer src="vendor/OrbitControls.js"></script>
+  <script defer src="js/soldier.js"></script>
+  <script defer src="js/poses.js"></script>
+  <script defer src="js/animation.js"></script>
+  <script defer src="js/capture.js"></script>
+  <script defer src="js/ui.js"></script>
+  <script defer src="js/main.js"></script>
+</body>
+</html>
