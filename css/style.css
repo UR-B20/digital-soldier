@@ -212,6 +212,11 @@ html, body {
   color: var(--text);
 }
 
+/* figure modes: hide controls that don't apply to the active figure */
+.human-only { display: none; }
+#panel.human-mode .human-only { display: block; }
+#panel.human-mode .stylized-only { display: none; }
+
 /* keyframes */
 .kf-list { margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
 .kf {
